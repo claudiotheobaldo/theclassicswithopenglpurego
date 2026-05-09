@@ -18,14 +18,14 @@ import (
 
 // Renderer owns the shaders and VAOs.  One per GL context.
 //
-// Two pipelines coexist:
+// Three pipelines coexist:
 //   - rect: uniform-driven, axis-aligned filled quads (used by Rect, glyphs)
 //   - line: pixel-space vertices uploaded per-call, used for arbitrary
 //     line/polyline drawing (Line, PolygonStroke).
+//   - tex:  textured quad with foreground/background colour mix, used by
+//     DrawTexture for grid bitmaps and similar.
 //
-// Begin() sets the rect program; line calls swap programs as needed.  After
-// any Line/PolygonStroke call the next Rect call rebinds rect program
-// transparently.
+// Begin() sets the rect program; other calls swap programs as needed.
 type Renderer struct {
 	// rect pipeline
 	rectProg          uint32
@@ -41,8 +41,15 @@ type Renderer struct {
 	lineUColor        int32
 	lineUViewport     int32
 
+	// texture pipeline (shares the unit-quad VBO with rect)
+	texProg       uint32
+	texURect      int32
+	texUViewport  int32
+	texUFG, texUBG int32
+	texUSampler   int32
+
 	viewportW, viewportH int
-	current              int // 0 = rect, 1 = line
+	current              int // 0 = rect, 1 = line, 2 = tex
 }
 
 // New compiles the shaders and creates VAOs.  Call after gl.Init().
@@ -78,6 +85,15 @@ func New() *Renderer {
 	gl.EnableVertexAttribArray(0)
 	gl.VertexAttribPointerWithOffset(0, 2, gl.FLOAT, false, 0, 0)
 
+	// ── texture pipeline ── (re-uses the rect unit-quad VBO via the
+	// rect VAO; we just bind a different program before drawing.)
+	r.texProg = compileProgram(texVS, texFS)
+	r.texURect = gl.GetUniformLocation(r.texProg, gl.Str("uRect\x00"))
+	r.texUViewport = gl.GetUniformLocation(r.texProg, gl.Str("uViewport\x00"))
+	r.texUFG = gl.GetUniformLocation(r.texProg, gl.Str("uFG\x00"))
+	r.texUBG = gl.GetUniformLocation(r.texProg, gl.Str("uBG\x00"))
+	r.texUSampler = gl.GetUniformLocation(r.texProg, gl.Str("uTex\x00"))
+
 	return r
 }
 
@@ -89,6 +105,7 @@ func (r *Renderer) Destroy() {
 	gl.DeleteBuffers(1, &r.lineVBO)
 	gl.DeleteVertexArrays(1, &r.lineVAO)
 	gl.DeleteProgram(r.lineProg)
+	gl.DeleteProgram(r.texProg)
 }
 
 // Begin records the viewport size and binds the rect pipeline.  Call once
@@ -160,6 +177,69 @@ func (r *Renderer) Line(x1, y1, x2, y2, thickness, cr, cg, cb float32) {
 		gl.BufferSubData(gl.ARRAY_BUFFER, 0, 8*4, gl.Ptr(&verts[0]))
 	}
 	gl.Uniform3f(r.lineUColor, cr, cg, cb)
+	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+}
+
+// ─── Textures ───────────────────────────────────────────────────────────────
+//
+// Textures are single-channel 8-bit, intended for grid/bitmap data.  Upload
+// a w*h byte slice; sample as fg/bg blend in DrawTexture.  Filtering is
+// nearest, so each texel renders as a sharp block at any draw size — exactly
+// what cellular automata and pixel-art grids want.
+
+// Texture is a GPU-side single-channel 8-bit texture.
+type Texture struct {
+	id   uint32
+	w, h int32
+}
+
+// NewTexture allocates a w x h GL_R8 texture.  Use Upload to populate it.
+func (r *Renderer) NewTexture(w, h int) *Texture {
+	t := &Texture{w: int32(w), h: int32(h)}
+	gl.GenTextures(1, &t.id)
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.R8, t.w, t.h, 0, gl.RED, gl.UNSIGNED_BYTE, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	return t
+}
+
+// Upload replaces the texture's pixel data.  data must contain exactly w*h
+// bytes (single-channel).
+func (t *Texture) Upload(data []byte) {
+	if len(data) != int(t.w)*int(t.h) {
+		panic("Texture.Upload: wrong data length")
+	}
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+	// One-byte rows; default unpack alignment is 4 which would pad odd
+	// widths.  Set 1 so any width works.
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 1)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, t.w, t.h, gl.RED, gl.UNSIGNED_BYTE, gl.Ptr(data))
+}
+
+// Destroy releases the texture.
+func (t *Texture) Destroy() { gl.DeleteTextures(1, &t.id) }
+
+// Size returns the texture's dimensions in pixels.
+func (t *Texture) Size() (w, h int) { return int(t.w), int(t.h) }
+
+// DrawTexture renders the texture into a (w x h) rect at (x, y), with each
+// texel mixed between bg and fg by its 0..255 value (0 = bg, 255 = fg).
+func (r *Renderer) DrawTexture(t *Texture, x, y, w, h float32, fg, bg [3]float32) {
+	if r.current != 2 {
+		gl.UseProgram(r.texProg)
+		gl.BindVertexArray(r.rectVAO) // shares the unit-quad
+		r.current = 2
+	}
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+	gl.Uniform1i(r.texUSampler, 0)
+	gl.Uniform2f(r.texUViewport, float32(r.viewportW), float32(r.viewportH))
+	gl.Uniform4f(r.texURect, x, y, w, h)
+	gl.Uniform3f(r.texUFG, fg[0], fg[1], fg[2])
+	gl.Uniform3f(r.texUBG, bg[0], bg[1], bg[2])
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 }
 
@@ -341,6 +421,32 @@ const fsSrc = `#version 330 core
 uniform vec3 uColor;
 out vec4 fragColor;
 void main() { fragColor = vec4(uColor, 1.0); }` + "\x00"
+
+const texVS = `#version 330 core
+layout(location=0) in vec2 aQuad;
+uniform vec4 uRect;
+uniform vec2 uViewport;
+out vec2 vUV;
+void main() {
+    vec2 px = uRect.xy + aQuad * uRect.zw;
+    vec2 ndc = vec2(
+         px.x / uViewport.x * 2.0 - 1.0,
+        -(px.y / uViewport.y * 2.0 - 1.0)
+    );
+    gl_Position = vec4(ndc, 0.0, 1.0);
+    vUV = aQuad;
+}` + "\x00"
+
+const texFS = `#version 330 core
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform vec3 uFG;
+uniform vec3 uBG;
+out vec4 fragColor;
+void main() {
+    float v = texture(uTex, vUV).r;
+    fragColor = vec4(mix(uBG, uFG, v), 1.0);
+}` + "\x00"
 
 func compileProgram(vs, fs string) uint32 {
 	v := compileShader(gl.VERTEX_SHADER, vs)
