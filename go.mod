@@ -12,6 +12,6 @@ require (
 	golang.org/x/sys v0.43.0 // indirect
 )
 
-replace github.com/ClaudioTheobaldo/gl-purego => ../gl-purego
+replace github.com/ClaudioTheobaldo/gl-purego => ../../Libraries/gl-purego
 
-replace github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw => ../glfw-purego/v3.3/glfw
+replace github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw => ../../Libraries/glfw-purego/v3.3/glfw
