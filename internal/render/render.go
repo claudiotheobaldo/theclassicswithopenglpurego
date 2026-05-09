@@ -271,6 +271,22 @@ func (r *Renderer) Number(x, y, w, h, t float32, n int, cr, cg, cb float32) {
 	r.Text(x, y, w, h, t, fmt.Sprintf("%d", n), cr, cg, cb)
 }
 
+// TextWidth returns the rendered width of s when drawn with per-glyph width
+// w, matching the same gap Text uses internally.  Use this to lay out HUD
+// elements without having to duplicate the layout maths in callers.
+func TextWidth(s string, w float32) float32 {
+	if len(s) == 0 {
+		return 0
+	}
+	const gap = 10 // keep in sync with Text
+	return float32(len(s))*w + float32(len(s)-1)*gap
+}
+
+// NumberWidth is TextWidth(fmt.Sprintf("%d", n), w).
+func NumberWidth(n int, w float32) float32 {
+	return TextWidth(fmt.Sprintf("%d", n), w)
+}
+
 // ─── Shader plumbing ────────────────────────────────────────────────────────
 
 const rectVS = `#version 330 core

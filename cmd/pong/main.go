@@ -313,7 +313,8 @@ func (g *game) draw(r *render.Renderer) {
 		if g.rightScore > g.leftScore {
 			msg = "R WIN"
 		}
-		r.Text(winW/2-float32(len(msg))*30/2, winH/2+60, 26, 40, 4, msg, 1, 1, 1)
+		const w, h float32 = 26, 40
+		r.Text(winW/2-render.TextWidth(msg, w)/2, winH/2+60, w, h, 4, msg, 1, 1, 1)
 	}
 }
 

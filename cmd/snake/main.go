@@ -341,12 +341,18 @@ func (g *game) placeFood() {
 // ─── Draw ────────────────────────────────────────────────────────────────────
 
 func (g *game) draw(r *render.Renderer) {
-	// header strip
+	// header strip — use TextWidth so the HI label lines up with whatever
+	// digit count the high score happens to be.
 	r.Rect(0, 0, winW, headerH, 0.10, 0.13, 0.10)
 	r.Number(8, 6, 18, 24, 3, g.score, 1, 1, 1)
 	if g.highScore > 0 {
-		r.Text(winW-200, 6, 14, 18, 2, "HI", 0.7, 0.7, 0.7)
-		r.Number(winW-160, 6, 18, 24, 3, g.highScore, 0.9, 0.9, 0.9)
+		const labelW, valueW float32 = 14, 18
+		hiValueW := render.NumberWidth(g.highScore, valueW)
+		hiLabelW := render.TextWidth("HI", labelW)
+		valueX := float32(winW) - 12 - hiValueW
+		labelX := valueX - 12 - hiLabelW
+		r.Text(labelX, 6, labelW, 18, 2, "HI", 0.7, 0.7, 0.7)
+		r.Number(valueX, 6, valueW, 24, 3, g.highScore, 0.9, 0.9, 0.9)
 	}
 
 	// playfield background
@@ -376,12 +382,12 @@ func (g *game) draw(r *render.Renderer) {
 	if g.state == stateDead {
 		// dim overlay (no blending, fake with a dark grey wash on the centre)
 		r.Rect(0, winH/2-60, winW, 120, 0, 0, 0)
+		const msgW, msgH float32 = 26, 38
 		msg := "GAME OVER"
-		w := float32(len(msg))*30 + float32(len(msg)-1)*10
-		r.Text(float32(winW)/2-w/2, winH/2-40, 26, 38, 4, msg, 1, 0.4, 0.4)
+		r.Text(float32(winW)/2-render.TextWidth(msg, msgW)/2, winH/2-40, msgW, msgH, 4, msg, 1, 0.4, 0.4)
+		const hintW, hintH float32 = 16, 22
 		hint := "SPACE"
-		hw := float32(len(hint))*18 + float32(len(hint)-1)*10
-		r.Text(float32(winW)/2-hw/2, winH/2+10, 16, 22, 3, hint, 0.8, 0.8, 0.8)
+		r.Text(float32(winW)/2-render.TextWidth(hint, hintW)/2, winH/2+10, hintW, hintH, 3, hint, 0.8, 0.8, 0.8)
 	}
 }
 

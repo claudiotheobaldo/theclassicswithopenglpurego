@@ -520,13 +520,27 @@ var rowColors = [rows][3]float32{
 }
 
 func (g *game) draw(r *render.Renderer) {
-	// HUD strip.
+	// HUD strip.  Layout: SCORE | BOARD <n> | LIVES <n> with explicit
+	// per-element widths from the renderer's TextWidth helper so labels and
+	// values don't overlap when string lengths or font sizes change.
 	r.Rect(0, 0, winW, hudH, 0.06, 0.06, 0.10)
-	r.Number(20, 8, 16, 22, 0, g.score, 1, 1, 1)
-	r.Text(winW/2-50, 8, 14, 18, 0, "BOARD", 0.7, 0.7, 0.7)
-	r.Number(winW/2+50, 8, 16, 22, 0, g.board, 1, 1, 1)
-	r.Text(winW-160, 8, 14, 18, 0, "LIVES", 0.7, 0.7, 0.7)
-	r.Number(winW-60, 8, 16, 22, 0, g.lives, 1, 1, 1)
+	const labelW, valueW float32 = 14, 16
+	const labelH, valueH float32 = 18, 22
+	const pad float32 = 12
+	r.Number(20, 8, valueW, valueH, 0, g.score, 1, 1, 1)
+
+	boardLabelW := render.TextWidth("BOARD", labelW)
+	boardValueW := render.NumberWidth(g.board, valueW)
+	boardX := float32(winW)/2 - (boardLabelW+pad+boardValueW)/2
+	r.Text(boardX, 8, labelW, labelH, 0, "BOARD", 0.7, 0.7, 0.7)
+	r.Number(boardX+boardLabelW+pad, 8, valueW, valueH, 0, g.board, 1, 1, 1)
+
+	livesValueW := render.NumberWidth(g.lives, valueW)
+	livesLabelW := render.TextWidth("LIVES", labelW)
+	livesValueX := float32(winW) - 20 - livesValueW
+	livesLabelX := livesValueX - pad - livesLabelW
+	r.Text(livesLabelX, 8, labelW, labelH, 0, "LIVES", 0.7, 0.7, 0.7)
+	r.Number(livesValueX, 8, valueW, valueH, 0, g.lives, 1, 1, 1)
 
 	// Bricks.
 	for _, b := range g.bricks {
