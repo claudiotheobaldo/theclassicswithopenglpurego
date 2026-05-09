@@ -97,12 +97,14 @@ var glyphs = map[rune]uint8{
 	'H': 0b0110111,
 	'I': 0b0110000,
 	'L': 0b0001110,
+	'M': 0b1110110, // approximate (same shape as N)
 	'N': 0b1110110, // approximate
 	'O': 0b1111110,
 	'P': 0b1100111,
-	'R': 0b1100111, // approximate
+	'R': 0b1100111, // approximate (P-shape)
 	'S': 0b1011011,
 	'U': 0b0111110,
+	'V': 0b0111110, // approximate (same shape as U)
 	'W': 0b0101110, // approximate
 	'-': 0b0000001,
 	' ': 0,
