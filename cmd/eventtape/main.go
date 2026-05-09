@@ -373,26 +373,35 @@ func drawPanel(r *render.Renderer, s *liveState) {
 		if j.gamepad {
 			line("  GAMEPAD GUID %s", truncate(j.guid, 18))
 		}
-		if len(j.axes) > 0 {
-			parts := make([]string, len(j.axes))
-			for i, a := range j.axes {
-				parts[i] = fmt.Sprintf("%+.2f", a)
+		// Axes: print labels for the standard XInput layout (the order
+		// glfw-purego returns on Windows), one pair per row so a wide
+		// trigger value can't push the right stick off-screen.
+		const axisLabels = "LXLYRXRYLTRT"
+		for i := 0; i < len(j.axes); i += 2 {
+			a := fmt.Sprintf("%2s%+.2F", labelFor(axisLabels, i), j.axes[i])
+			b := ""
+			if i+1 < len(j.axes) {
+				b = fmt.Sprintf("  %2s%+.2F", labelFor(axisLabels, i+1), j.axes[i+1])
 			}
-			line("  AX %s", strings.Join(parts, " "))
+			line("  %s%s", a, b)
 		}
-		if len(j.buttons) > 0 {
+		// Buttons: 8 per row so we don't clip after index 7.
+		const perRow = 8
+		for off := 0; off < len(j.buttons); off += perRow {
+			end := off + perRow
+			if end > len(j.buttons) {
+				end = len(j.buttons)
+			}
 			b := strings.Builder{}
-			for i, a := range j.buttons {
-				if i >= 16 {
-					break
-				}
-				if a == glfw.Press {
-					b.WriteString(fmt.Sprintf("%X", i))
+			b.WriteString(fmt.Sprintf("BTN %d-", off))
+			for i := off; i < end; i++ {
+				if j.buttons[i] == glfw.Press {
+					b.WriteString(fmt.Sprintf("%X", i%16))
 				} else {
-					b.WriteString("-")
+					b.WriteString(".")
 				}
 			}
-			line("  BTN %s", b.String())
+			line("  %s", b.String())
 		}
 		if len(j.hats) > 0 {
 			parts := make([]string, len(j.hats))
@@ -529,4 +538,15 @@ func truncate(s string, n int) string {
 		return s
 	}
 	return s[:n]
+}
+
+// labelFor returns the 2-char label at position 2*idx in s, or "" if out
+// of range.  Used to attach LX/LY/RX/RY/LT/RT labels to the axes printed
+// in the joystick panel.
+func labelFor(s string, idx int) string {
+	off := idx * 2
+	if off+2 > len(s) {
+		return fmt.Sprintf("%d", idx)
+	}
+	return s[off : off+2]
 }
