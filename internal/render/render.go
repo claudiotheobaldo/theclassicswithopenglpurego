@@ -48,6 +48,13 @@ type Renderer struct {
 	texUFG, texUBG int32
 	texUSampler   int32
 
+	// indexed-palette texture pipeline
+	idxProg       uint32
+	idxURect      int32
+	idxUViewport  int32
+	idxUSampler   int32
+	idxUPalette   int32
+
 	viewportW, viewportH int
 	current              int // 0 = rect, 1 = line, 2 = tex
 }
@@ -94,6 +101,13 @@ func New() *Renderer {
 	r.texUBG = gl.GetUniformLocation(r.texProg, gl.Str("uBG\x00"))
 	r.texUSampler = gl.GetUniformLocation(r.texProg, gl.Str("uTex\x00"))
 
+	// ── indexed-palette texture pipeline ──
+	r.idxProg = compileProgram(texVS, idxFS)
+	r.idxURect = gl.GetUniformLocation(r.idxProg, gl.Str("uRect\x00"))
+	r.idxUViewport = gl.GetUniformLocation(r.idxProg, gl.Str("uViewport\x00"))
+	r.idxUSampler = gl.GetUniformLocation(r.idxProg, gl.Str("uTex\x00"))
+	r.idxUPalette = gl.GetUniformLocation(r.idxProg, gl.Str("uPalette\x00"))
+
 	return r
 }
 
@@ -106,6 +120,7 @@ func (r *Renderer) Destroy() {
 	gl.DeleteVertexArrays(1, &r.lineVAO)
 	gl.DeleteProgram(r.lineProg)
 	gl.DeleteProgram(r.texProg)
+	gl.DeleteProgram(r.idxProg)
 }
 
 // Begin records the viewport size and binds the rect pipeline.  Call once
@@ -228,11 +243,9 @@ func (t *Texture) Size() (w, h int) { return int(t.w), int(t.h) }
 // DrawTexture renders the texture into a (w x h) rect at (x, y), with each
 // texel mixed between bg and fg by its 0..255 value (0 = bg, 255 = fg).
 func (r *Renderer) DrawTexture(t *Texture, x, y, w, h float32, fg, bg [3]float32) {
-	if r.current != 2 {
-		gl.UseProgram(r.texProg)
-		gl.BindVertexArray(r.rectVAO) // shares the unit-quad
-		r.current = 2
-	}
+	gl.UseProgram(r.texProg)
+	gl.BindVertexArray(r.rectVAO) // shares the unit-quad
+	r.current = 2
 	gl.ActiveTexture(gl.TEXTURE0)
 	gl.BindTexture(gl.TEXTURE_2D, t.id)
 	gl.Uniform1i(r.texUSampler, 0)
@@ -240,6 +253,30 @@ func (r *Renderer) DrawTexture(t *Texture, x, y, w, h float32, fg, bg [3]float32
 	gl.Uniform4f(r.texURect, x, y, w, h)
 	gl.Uniform3f(r.texUFG, fg[0], fg[1], fg[2])
 	gl.Uniform3f(r.texUBG, bg[0], bg[1], bg[2])
+	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+}
+
+// DrawTextureIndexed renders the texture as a palette lookup: each texel's
+// 0..15 value indexes into the 16-entry palette.  Use this when cells store
+// arbitrary indices rather than scalar intensity (paint apps, tile maps,
+// etc.).  Indices >= 16 wrap.
+func (r *Renderer) DrawTextureIndexed(t *Texture, x, y, w, h float32, palette [16][3]float32) {
+	gl.UseProgram(r.idxProg)
+	gl.BindVertexArray(r.rectVAO)
+	r.current = 3
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+	gl.Uniform1i(r.idxUSampler, 0)
+	gl.Uniform2f(r.idxUViewport, float32(r.viewportW), float32(r.viewportH))
+	gl.Uniform4f(r.idxURect, x, y, w, h)
+	// Upload as a flat array of 48 floats — Uniform3fv on a vec3[16].
+	flat := [48]float32{}
+	for i := 0; i < 16; i++ {
+		flat[i*3+0] = palette[i][0]
+		flat[i*3+1] = palette[i][1]
+		flat[i*3+2] = palette[i][2]
+	}
+	gl.Uniform3fv(r.idxUPalette, 16, &flat[0])
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 }
 
@@ -446,6 +483,16 @@ out vec4 fragColor;
 void main() {
     float v = texture(uTex, vUV).r;
     fragColor = vec4(mix(uBG, uFG, v), 1.0);
+}` + "\x00"
+
+const idxFS = `#version 330 core
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform vec3 uPalette[16];
+out vec4 fragColor;
+void main() {
+    int idx = int(texture(uTex, vUV).r * 255.0 + 0.5) & 15;
+    fragColor = vec4(uPalette[idx], 1.0);
 }` + "\x00"
 
 func compileProgram(vs, fs string) uint32 {

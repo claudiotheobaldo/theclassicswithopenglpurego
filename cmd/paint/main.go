@@ -48,13 +48,16 @@ const (
 	hudH    = 28
 )
 
-// 8-colour palette: index 0 is the dead/background colour, 1..7 are paints.
-var palette = [8][3]float32{
-	{0.05, 0.06, 0.08}, // 0: bg
+// 16-colour palette: slot 0 is bg (dark), 1..7 are paints, 8..15 unused but
+// reserved so the renderer's palette-shader uniform layout (vec3[16]) is
+// always fully populated.  Indices stored in canvas cells map directly into
+// this table via DrawTextureIndexed.
+var palette = [16][3]float32{
+	{0.04, 0.05, 0.07}, // 0: bg
 	{1.00, 1.00, 1.00}, // 1: white
 	{0.95, 0.30, 0.30}, // 2: red
 	{0.30, 0.85, 0.40}, // 3: green
-	{0.30, 0.55, 0.95}, // 4: blue
+	{0.40, 0.65, 1.00}, // 4: blue
 	{0.95, 0.85, 0.30}, // 5: yellow
 	{0.85, 0.40, 0.95}, // 6: purple
 	{0.30, 0.85, 0.85}, // 7: cyan
@@ -357,31 +360,35 @@ func drawWindow(ws *windowState) {
 	gl.Clear(gl.COLOR_BUFFER_BIT)
 	ws.r.Begin(winW, winH)
 
-	// Render the canvas, mixing background palette[0] with the brush colour.
-	// We don't have a palette shader yet, so render once per non-bg colour
-	// using a copy-mask approach… that'd be expensive.  Instead, just show
-	// the raw byte values mixed against bg using the existing fg/bg shader,
-	// keyed on the *current* brush colour so painting feels right.  All
-	// non-zero cells render in fg regardless of their stored colour.
-	//
-	// (Trade-off acknowledged: the 8-colour palette is a fiction in this
-	// version; the goal here is exercising context sharing, not building a
-	// palette renderer.  Future work: add DrawTextureIndexed.)
-	ws.r.DrawTexture(ws.tex,
+	// Render the canvas via the palette shader so each cell's stored
+	// index resolves to a real colour rather than a brightness.
+	ws.r.DrawTextureIndexed(ws.tex,
 		0, hudH, winW, winH-hudH,
-		palette[brush.color],
-		palette[0],
+		palette,
 	)
 
-	// HUD.
+	// HUD.  Lay out left-to-right with measured widths so labels and
+	// values never overlap, regardless of brush.radius's digit count.
 	ws.r.Rect(0, 0, winW, hudH, 0.10, 0.12, 0.16)
-	ws.r.Text(12, 6, 11, 16, 0,
-		fmt.Sprintf("PAINT %d", ws.id), 0.8, 0.9, 1)
+	const labelW, labelH float32 = 11, 16
+	x := float32(12)
+	title := fmt.Sprintf("PAINT %d", ws.id)
+	ws.r.Text(x, 6, labelW, labelH, 0, title, 0.8, 0.9, 1)
+	x += render.TextWidth(title, labelW) + 16
 	// Brush colour swatch.
-	ws.r.Rect(140, 6, 16, 16, palette[brush.color][0], palette[brush.color][1], palette[brush.color][2])
-	ws.r.Text(166, 6, 11, 16, 0, fmt.Sprintf("RAD %d", brush.radius), 0.8, 0.8, 0.9)
-	hint := "L PAINT  R ERASE  CTRL C COPY  CTRL V PASTE"
-	ws.r.Text(winW-render.TextWidth(hint, 7)-12, 8, 7, 12, 0, hint, 0.55, 0.6, 0.7)
+	ws.r.Rect(x, 6, 16, 16, palette[brush.color][0], palette[brush.color][1], palette[brush.color][2])
+	x += 22
+	radTxt := fmt.Sprintf("RAD %d", brush.radius)
+	ws.r.Text(x, 6, labelW, labelH, 0, radTxt, 0.8, 0.8, 0.9)
+	x += render.TextWidth(radTxt, labelW) + 16
+
+	// Hint string flushed right; only show it if there's room left.
+	hint := "1-7 COLOR  [/] SIZE  C CLEAR  R RANDOM  CTRL+C/V CLIP"
+	const hintW, hintH float32 = 7, 12
+	hintFullW := render.TextWidth(hint, hintW)
+	if x+hintFullW+12 < winW {
+		ws.r.Text(winW-hintFullW-12, 8, hintW, hintH, 0, hint, 0.55, 0.6, 0.7)
+	}
 
 	ws.w.SwapBuffers()
 }
