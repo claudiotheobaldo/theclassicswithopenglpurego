@@ -1,0 +1,4 @@
+*.exe
+/cmd/*/[a-z]*[a-z]
+!/cmd/*/main.go
+!/cmd/*/*.go
