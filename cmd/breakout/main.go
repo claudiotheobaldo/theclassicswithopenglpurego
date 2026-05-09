@@ -35,6 +35,7 @@ import (
 	"github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw"
 
 	"github.com/ClaudioTheobaldo/TheClassicsWithOpenGLPurego/internal/render"
+	"github.com/ClaudioTheobaldo/TheClassicsWithOpenGLPurego/internal/winutil"
 )
 
 const (
@@ -84,7 +85,7 @@ func main() {
 	glfw.WindowHint(glfw.ContextVersionMinor, 3)
 	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
-	glfw.WindowHint(glfw.Resizable, glfw.False)
+	glfw.WindowHint(glfw.Resizable, glfw.True)
 
 	win, err := glfw.CreateWindow(winW, winH, "Breakout", nil, nil)
 	if err != nil {
@@ -114,10 +115,27 @@ func main() {
 			if g.state == stateGameOver || g.state == stateWon {
 				g.reset()
 			}
+		case glfw.KeyF11:
+			winutil.ToggleFullscreen(win)
 		case glfw.KeyEscape:
 			win.SetShouldClose(true)
 		}
 	})
+
+	// Letterbox the playfield so paddle/ball/bricks stay correctly sized
+	// when the window resizes or goes fullscreen.
+	fbW, fbH := win.GetFramebufferSize()
+	applyViewport := func(w, h int) {
+		x, y, vw, vh := winutil.LetterboxRect(w, h, winW, winH)
+		gl.Viewport(int32(x), int32(y), int32(vw), int32(vh))
+	}
+	applyViewport(fbW, fbH)
+	win.SetFramebufferSizeCallback(func(_ *glfw.Window, w, h int) {
+		fbW, fbH = w, h
+		applyViewport(w, h)
+	})
+	_ = fbW
+	_ = fbH
 
 	// Mouse click also launches.
 	win.SetMouseButtonCallback(func(_ *glfw.Window, btn glfw.MouseButton, action glfw.Action, _ glfw.ModifierKey) {

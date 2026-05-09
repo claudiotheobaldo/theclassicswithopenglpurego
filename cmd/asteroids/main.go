@@ -41,6 +41,7 @@ import (
 	"github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw"
 
 	"github.com/ClaudioTheobaldo/TheClassicsWithOpenGLPurego/internal/render"
+	"github.com/ClaudioTheobaldo/TheClassicsWithOpenGLPurego/internal/winutil"
 )
 
 const (
@@ -90,7 +91,7 @@ func main() {
 	glfw.WindowHint(glfw.ContextVersionMinor, 3)
 	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
-	glfw.WindowHint(glfw.Resizable, glfw.False)
+	glfw.WindowHint(glfw.Resizable, glfw.True)
 
 	win, err := glfw.CreateWindow(winW, winH, "Asteroids", nil, nil)
 	if err != nil {
@@ -123,10 +124,28 @@ func main() {
 			if g.state != statePlay {
 				g.reset()
 			}
+		case glfw.KeyF11:
+			winutil.ToggleFullscreen(win)
 		case glfw.KeyEscape:
 			win.SetShouldClose(true)
 		}
 	})
+
+	// Aspect-fit the playfield to whatever the framebuffer happens to be
+	// (window resize, fullscreen toggle, etc.).  Without this the rocks
+	// stretch into ovals on a wider monitor.
+	fbW, fbH := win.GetFramebufferSize()
+	applyViewport := func(w, h int) {
+		x, y, vw, vh := winutil.LetterboxRect(w, h, winW, winH)
+		gl.Viewport(int32(x), int32(y), int32(vw), int32(vh))
+	}
+	applyViewport(fbW, fbH)
+	win.SetFramebufferSizeCallback(func(_ *glfw.Window, w, h int) {
+		fbW, fbH = w, h
+		applyViewport(w, h)
+	})
+	_ = fbW
+	_ = fbH
 
 	last := time.Now()
 	for !win.ShouldClose() {

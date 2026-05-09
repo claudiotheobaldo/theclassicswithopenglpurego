@@ -55,6 +55,14 @@ type Renderer struct {
 	idxUSampler   int32
 	idxUPalette   int32
 
+	// RGBA texture pipeline (used by image viewer, FBO sampling)
+	rgbaProg      uint32
+	rgbaURect     int32
+	rgbaUViewport int32
+	rgbaUSampler  int32
+	rgbaUTint     int32
+	rgbaUFlip     int32
+
 	viewportW, viewportH int
 	current              int // 0 = rect, 1 = line, 2 = tex
 }
@@ -108,6 +116,14 @@ func New() *Renderer {
 	r.idxUSampler = gl.GetUniformLocation(r.idxProg, gl.Str("uTex\x00"))
 	r.idxUPalette = gl.GetUniformLocation(r.idxProg, gl.Str("uPalette\x00"))
 
+	// ── RGBA texture pipeline ──
+	r.rgbaProg = compileProgram(texVS, rgbaFS)
+	r.rgbaURect = gl.GetUniformLocation(r.rgbaProg, gl.Str("uRect\x00"))
+	r.rgbaUViewport = gl.GetUniformLocation(r.rgbaProg, gl.Str("uViewport\x00"))
+	r.rgbaUSampler = gl.GetUniformLocation(r.rgbaProg, gl.Str("uTex\x00"))
+	r.rgbaUTint = gl.GetUniformLocation(r.rgbaProg, gl.Str("uTint\x00"))
+	r.rgbaUFlip = gl.GetUniformLocation(r.rgbaProg, gl.Str("uFlip\x00"))
+
 	return r
 }
 
@@ -121,6 +137,7 @@ func (r *Renderer) Destroy() {
 	gl.DeleteProgram(r.lineProg)
 	gl.DeleteProgram(r.texProg)
 	gl.DeleteProgram(r.idxProg)
+	gl.DeleteProgram(r.rgbaProg)
 }
 
 // Begin records the viewport size and binds the rect pipeline.  Call once
@@ -202,10 +219,14 @@ func (r *Renderer) Line(x1, y1, x2, y2, thickness, cr, cg, cb float32) {
 // nearest, so each texel renders as a sharp block at any draw size — exactly
 // what cellular automata and pixel-art grids want.
 
-// Texture is a GPU-side single-channel 8-bit texture.
+// Texture is a GPU-side texture, single-channel R8 by default; RGBA8 if
+// created via NewTextureRGBA.  rgba and fbAttached are used by the
+// renderer to pick the right sampling shader and Y-flip direction.
 type Texture struct {
-	id   uint32
-	w, h int32
+	id         uint32
+	w, h       int32
+	rgba       bool
+	fbAttached bool
 }
 
 // NewTexture allocates a w x h GL_R8 texture.  Use Upload to populate it.
@@ -239,6 +260,126 @@ func (t *Texture) Destroy() { gl.DeleteTextures(1, &t.id) }
 
 // Size returns the texture's dimensions in pixels.
 func (t *Texture) Size() (w, h int) { return int(t.w), int(t.h) }
+
+// ID returns the underlying GL texture ID.  Useful when other code needs
+// to interact with the texture directly (e.g. binding it as an FBO
+// attachment).
+func (t *Texture) ID() uint32 { return t.id }
+
+// ─── RGBA textures ──────────────────────────────────────────────────────────
+//
+// Four-byte-per-pixel textures for image data, screenshots, and
+// framebuffer-attached colour buffers.  Sampled with linear filtering
+// (good for photo-style content) — switch to nearest with SetNearest if
+// you need crisp pixel art.
+
+// NewTextureRGBA allocates a w x h GL_RGBA8 texture with linear filtering.
+func (r *Renderer) NewTextureRGBA(w, h int) *Texture {
+	t := &Texture{w: int32(w), h: int32(h)}
+	gl.GenTextures(1, &t.id)
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+	gl.TexImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, t.w, t.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, nil)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE)
+	t.rgba = true
+	return t
+}
+
+// UploadRGBA replaces the texture's pixel data with w*h*4 bytes of RGBA.
+func (t *Texture) UploadRGBA(data []byte) {
+	if len(data) != int(t.w)*int(t.h)*4 {
+		panic("Texture.UploadRGBA: wrong data length")
+	}
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+	gl.PixelStorei(gl.UNPACK_ALIGNMENT, 4)
+	gl.TexSubImage2D(gl.TEXTURE_2D, 0, 0, 0, t.w, t.h, gl.RGBA, gl.UNSIGNED_BYTE, gl.Ptr(data))
+}
+
+// SetNearest forces nearest-neighbour filtering (sharp pixels at any
+// draw size).  Default for RGBA textures is linear.
+func (t *Texture) SetNearest() {
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST)
+	gl.TexParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST)
+}
+
+// ─── Framebuffer (offscreen render target) ──────────────────────────────────
+
+// Framebuffer is an offscreen render target backed by an RGBA colour
+// texture.  Use Bind() to switch all subsequent draws to it, Unbind() to
+// return to the default window framebuffer.  Sample the result via
+// DrawRGBATexture.
+type Framebuffer struct {
+	id  uint32
+	tex *Texture
+}
+
+// NewFramebuffer creates a w x h FBO with a single RGBA colour attachment.
+func (r *Renderer) NewFramebuffer(w, h int) *Framebuffer {
+	fb := &Framebuffer{tex: r.NewTextureRGBA(w, h)}
+	gl.GenFramebuffers(1, &fb.id)
+	gl.BindFramebuffer(gl.FRAMEBUFFER, fb.id)
+	gl.FramebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, fb.tex.id, 0)
+	if gl.CheckFramebufferStatus(gl.FRAMEBUFFER) != gl.FRAMEBUFFER_COMPLETE {
+		panic("Framebuffer not complete")
+	}
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+	fb.tex.fbAttached = true
+	return fb
+}
+
+// Bind directs subsequent rendering at this framebuffer and resets the
+// GL viewport to the framebuffer's dimensions.  Don't forget to call
+// Renderer.Begin again with matching dimensions before issuing draws.
+func (fb *Framebuffer) Bind() {
+	gl.BindFramebuffer(gl.FRAMEBUFFER, fb.id)
+	gl.Viewport(0, 0, fb.tex.w, fb.tex.h)
+}
+
+// Unbind restores the default framebuffer.  Caller must reset gl.Viewport
+// to the window's framebuffer size before drawing again.
+func (fb *Framebuffer) Unbind() {
+	gl.BindFramebuffer(gl.FRAMEBUFFER, 0)
+}
+
+// Texture returns the colour-attachment texture; sample it via
+// DrawRGBATexture or copy from it via glReadPixels.
+func (fb *Framebuffer) Texture() *Texture { return fb.tex }
+
+// Destroy releases the FBO and its colour texture.
+func (fb *Framebuffer) Destroy() {
+	gl.DeleteFramebuffers(1, &fb.id)
+	fb.tex.Destroy()
+}
+
+// DrawRGBATexture samples an RGBA texture (typically an FBO's colour
+// attachment) into a (w x h) rect.  Optional tint multiplies the sampled
+// colour; pass [4]float32{1,1,1,1} for a passthrough copy.
+func (r *Renderer) DrawRGBATexture(t *Texture, x, y, w, h float32, tint [4]float32) {
+	gl.UseProgram(r.rgbaProg)
+	gl.BindVertexArray(r.rectVAO)
+	r.current = 4
+	gl.ActiveTexture(gl.TEXTURE0)
+	gl.BindTexture(gl.TEXTURE_2D, t.id)
+	gl.Uniform1i(r.rgbaUSampler, 0)
+	gl.Uniform2f(r.rgbaUViewport, float32(r.viewportW), float32(r.viewportH))
+	gl.Uniform4f(r.rgbaURect, x, y, w, h)
+	gl.Uniform4f(r.rgbaUTint, tint[0], tint[1], tint[2], tint[3])
+	// Y-flip toggle: FBOs render bottom-up, raw image data is usually
+	// top-down.  Pass via a uniform so the same shader serves both.
+	flip := float32(0)
+	if t.fbAttached {
+		flip = 1
+	}
+	gl.Uniform1f(r.rgbaUFlip, flip)
+	// Enable alpha blending for tinted overlay use.
+	gl.Enable(gl.BLEND)
+	gl.BlendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA)
+	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+	gl.Disable(gl.BLEND)
+}
 
 // DrawTexture renders the texture into a (w x h) rect at (x, y), with each
 // texel mixed between bg and fg by its 0..255 value (0 = bg, 255 = fg).
@@ -493,6 +634,17 @@ out vec4 fragColor;
 void main() {
     int idx = int(texture(uTex, vUV).r * 255.0 + 0.5) & 15;
     fragColor = vec4(uPalette[idx], 1.0);
+}` + "\x00"
+
+const rgbaFS = `#version 330 core
+in vec2 vUV;
+uniform sampler2D uTex;
+uniform vec4 uTint;
+uniform float uFlip;  // 1.0 to flip Y (FBO sampling), 0.0 for raw images
+out vec4 fragColor;
+void main() {
+    vec2 uv = vec2(vUV.x, mix(vUV.y, 1.0 - vUV.y, uFlip));
+    fragColor = texture(uTex, uv) * uTint;
 }` + "\x00"
 
 func compileProgram(vs, fs string) uint32 {
