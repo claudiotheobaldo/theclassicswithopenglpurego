@@ -4,7 +4,7 @@ go 1.25.0
 
 require (
 	github.com/ClaudioTheobaldo/gl-purego v1.0.0
-	github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.1.0
+	github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.2.0
 )
 
 require (
