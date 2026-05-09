@@ -66,73 +66,85 @@ func (r *Renderer) Rect(x, y, w, h, cr, cg, cb float32) {
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
 }
 
-// ─── 7-segment digit / letter helpers ────────────────────────────────────────
+// ─── 5×7 pixel font ──────────────────────────────────────────────────────────
 //
-// Layout:
-//      aaaa
-//     f    b
-//     f    b
-//      gggg
-//     e    c
-//     e    c
-//      dddd
+// Each glyph is a 7-row × 5-column bitmap stored as 7 strings of 'X'/'.'.
+// Glyph fills its (w × h) bounding box by drawing one Rect per lit pixel,
+// pixel size = min(w/5, h/7).  Unknown runes render nothing.
 //
-// Each glyph is encoded as a 7-bit mask, MSB = segment a.
+// Letters are uppercase only.  Digits are full.  Add more glyphs as games
+// need them; this is a deliberate small set, not a full font.
 
-var glyphs = map[rune]uint8{
-	'0': 0b1111110,
-	'1': 0b0110000,
-	'2': 0b1101101,
-	'3': 0b1111001,
-	'4': 0b0110011,
-	'5': 0b1011011,
-	'6': 0b1011111,
-	'7': 0b1110000,
-	'8': 0b1111111,
-	'9': 0b1111011,
-	'A': 0b1110111,
-	'C': 0b1001110,
-	'E': 0b1001111,
-	'G': 0b1011110,
-	'H': 0b0110111,
-	'I': 0b0110000,
-	'L': 0b0001110,
-	'M': 0b1110110, // approximate (same shape as N)
-	'N': 0b1110110, // approximate
-	'O': 0b1111110,
-	'P': 0b1100111,
-	'R': 0b1100111, // approximate (P-shape)
-	'S': 0b1011011,
-	'U': 0b0111110,
-	'V': 0b0111110, // approximate (same shape as U)
-	'W': 0b0101110, // approximate
-	'-': 0b0000001,
-	' ': 0,
+var font5x7 = map[rune][7]string{
+	' ': {".....", ".....", ".....", ".....", ".....", ".....", "....."},
+	'-': {".....", ".....", ".....", ".XXX.", ".....", ".....", "....."},
+	'!': {"..X..", "..X..", "..X..", "..X..", "..X..", ".....", "..X.."},
+	':': {".....", "..X..", "..X..", ".....", "..X..", "..X..", "....."},
+	'.': {".....", ".....", ".....", ".....", ".....", "..X..", "..X.."},
+	'0': {".XXX.", "X...X", "X..XX", "X.X.X", "XX..X", "X...X", ".XXX."},
+	'1': {"..X..", ".XX..", "..X..", "..X..", "..X..", "..X..", ".XXX."},
+	'2': {".XXX.", "X...X", "....X", "...X.", "..X..", ".X...", "XXXXX"},
+	'3': {"XXXXX", "...X.", "..X..", "...X.", "....X", "X...X", ".XXX."},
+	'4': {"...X.", "..XX.", ".X.X.", "X..X.", "XXXXX", "...X.", "...X."},
+	'5': {"XXXXX", "X....", "XXXX.", "....X", "....X", "X...X", ".XXX."},
+	'6': {".XXX.", "X....", "X....", "XXXX.", "X...X", "X...X", ".XXX."},
+	'7': {"XXXXX", "....X", "...X.", "..X..", ".X...", "X....", "X...."},
+	'8': {".XXX.", "X...X", "X...X", ".XXX.", "X...X", "X...X", ".XXX."},
+	'9': {".XXX.", "X...X", "X...X", ".XXXX", "....X", "....X", ".XXX."},
+	'A': {".XXX.", "X...X", "X...X", "XXXXX", "X...X", "X...X", "X...X"},
+	'B': {"XXXX.", "X...X", "X...X", "XXXX.", "X...X", "X...X", "XXXX."},
+	'C': {".XXXX", "X....", "X....", "X....", "X....", "X....", ".XXXX"},
+	'D': {"XXXX.", "X...X", "X...X", "X...X", "X...X", "X...X", "XXXX."},
+	'E': {"XXXXX", "X....", "X....", "XXXX.", "X....", "X....", "XXXXX"},
+	'F': {"XXXXX", "X....", "X....", "XXXX.", "X....", "X....", "X...."},
+	'G': {".XXXX", "X....", "X....", "X..XX", "X...X", "X...X", ".XXXX"},
+	'H': {"X...X", "X...X", "X...X", "XXXXX", "X...X", "X...X", "X...X"},
+	'I': {"XXXXX", "..X..", "..X..", "..X..", "..X..", "..X..", "XXXXX"},
+	'J': {"..XXX", "....X", "....X", "....X", "....X", "X...X", ".XXX."},
+	'K': {"X...X", "X..X.", "X.X..", "XX...", "X.X..", "X..X.", "X...X"},
+	'L': {"X....", "X....", "X....", "X....", "X....", "X....", "XXXXX"},
+	'M': {"X...X", "XX.XX", "X.X.X", "X.X.X", "X...X", "X...X", "X...X"},
+	'N': {"X...X", "XX..X", "X.X.X", "X..XX", "X...X", "X...X", "X...X"},
+	'O': {".XXX.", "X...X", "X...X", "X...X", "X...X", "X...X", ".XXX."},
+	'P': {"XXXX.", "X...X", "X...X", "XXXX.", "X....", "X....", "X...."},
+	'Q': {".XXX.", "X...X", "X...X", "X...X", "X.X.X", "X..X.", ".XX.X"},
+	'R': {"XXXX.", "X...X", "X...X", "XXXX.", "X.X..", "X..X.", "X...X"},
+	'S': {".XXXX", "X....", "X....", ".XXX.", "....X", "....X", "XXXX."},
+	'T': {"XXXXX", "..X..", "..X..", "..X..", "..X..", "..X..", "..X.."},
+	'U': {"X...X", "X...X", "X...X", "X...X", "X...X", "X...X", ".XXX."},
+	'V': {"X...X", "X...X", "X...X", "X...X", "X...X", ".X.X.", "..X.."},
+	'W': {"X...X", "X...X", "X...X", "X.X.X", "X.X.X", "XX.XX", "X...X"},
+	'X': {"X...X", "X...X", ".X.X.", "..X..", ".X.X.", "X...X", "X...X"},
+	'Y': {"X...X", "X...X", ".X.X.", "..X..", "..X..", "..X..", "..X.."},
+	'Z': {"XXXXX", "....X", "...X.", "..X..", ".X...", "X....", "XXXXX"},
 }
 
-// Glyph draws a single 7-segment character at (x, y) sized (w × h) with
-// segment thickness t.  Unknown runes draw nothing.
-func (r *Renderer) Glyph(x, y, w, h, t float32, c rune, cr, cg, cb float32) {
-	bits, ok := glyphs[c]
+// Glyph draws a single character at (x, y) inside a (w × h) box.  The pixel
+// size is the largest square that fits both the 5-column and 7-row
+// constraints, so the glyph keeps its aspect ratio inside the box.  The t
+// parameter is ignored (kept for signature compatibility).
+func (r *Renderer) Glyph(x, y, w, h, _ float32, c rune, cr, cg, cb float32) {
+	rows, ok := font5x7[c]
 	if !ok {
 		return
 	}
-	seg := func(i int, sx, sy, sw, sh float32) {
-		if bits&(1<<(6-i)) != 0 {
-			r.Rect(sx, sy, sw, sh, cr, cg, cb)
+	pix := w / 5
+	if h/7 < pix {
+		pix = h / 7
+	}
+	for ry, row := range rows {
+		for cx, ch := range row {
+			if ch == 'X' {
+				r.Rect(x+float32(cx)*pix, y+float32(ry)*pix, pix, pix, cr, cg, cb)
+			}
 		}
 	}
-	seg(0, x, y, w, t)                     // a
-	seg(1, x+w-t, y, t, h/2)               // b
-	seg(2, x+w-t, y+h/2, t, h/2)           // c
-	seg(3, x, y+h-t, w, t)                 // d
-	seg(4, x, y+h/2, t, h/2)               // e
-	seg(5, x, y, t, h/2)                   // f
-	seg(6, x, y+h/2-t/2, w, t)             // g
 }
 
 // Text draws a string left-to-right starting at (x, y), each glyph sized
-// (w × h) with t-px-thick segments and a fixed gap between glyphs.
+// (w × h).  A small inter-glyph gap is added so adjacent letters don't
+// touch.  The t parameter is preserved for signature compatibility but
+// ignored by the 5×7 renderer.
 func (r *Renderer) Text(x, y, w, h, t float32, s string, cr, cg, cb float32) {
 	const gap = 10
 	for i, c := range s {
