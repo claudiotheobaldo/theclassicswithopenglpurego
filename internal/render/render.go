@@ -287,6 +287,30 @@ func NumberWidth(n int, w float32) float32 {
 	return TextWidth(fmt.Sprintf("%d", n), w)
 }
 
+// HasGlyph reports whether the renderer can draw r.  The font is uppercase
+// only and covers digits and a small punctuation set; everything else
+// renders blank.  Diagnostic / log displays use this to substitute a
+// fallback rune so unknown characters don't disappear.
+func HasGlyph(r rune) bool {
+	_, ok := font5x7[r]
+	return ok
+}
+
+// Sanitize returns s upper-cased with any unknown runes replaced by '?'.
+// Useful when echoing unconstrained input (filenames, key names, etc) on
+// screen with the 5x7 font.
+func Sanitize(s string) string {
+	out := make([]rune, 0, len(s))
+	for _, r := range strings.ToUpper(s) {
+		if HasGlyph(r) {
+			out = append(out, r)
+		} else {
+			out = append(out, '?')
+		}
+	}
+	return string(out)
+}
+
 // ─── Shader plumbing ────────────────────────────────────────────────────────
 
 const rectVS = `#version 330 core
