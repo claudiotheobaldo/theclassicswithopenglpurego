@@ -10,60 +10,174 @@ package render
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	gl "github.com/ClaudioTheobaldo/gl-purego/v3.3-core/gl"
 )
 
-// Renderer owns the shader and quad VAO.  One per GL context.
+// Renderer owns the shaders and VAOs.  One per GL context.
+//
+// Two pipelines coexist:
+//   - rect: uniform-driven, axis-aligned filled quads (used by Rect, glyphs)
+//   - line: pixel-space vertices uploaded per-call, used for arbitrary
+//     line/polyline drawing (Line, PolygonStroke).
+//
+// Begin() sets the rect program; line calls swap programs as needed.  After
+// any Line/PolygonStroke call the next Rect call rebinds rect program
+// transparently.
 type Renderer struct {
-	prog      uint32
-	vao, vbo  uint32
-	uRect     int32
-	uColor    int32
-	uViewport int32
+	// rect pipeline
+	rectProg          uint32
+	rectVAO, rectVBO  uint32
+	rectURect         int32
+	rectUColor        int32
+	rectUViewport     int32
+
+	// line pipeline
+	lineProg          uint32
+	lineVAO, lineVBO  uint32
+	lineCap           int // VBO capacity in float32s
+	lineUColor        int32
+	lineUViewport     int32
+
+	viewportW, viewportH int
+	current              int // 0 = rect, 1 = line
 }
 
-// New compiles the shader and creates the VAO.  Call after gl.Init().
+// New compiles the shaders and creates VAOs.  Call after gl.Init().
 func New() *Renderer {
 	r := &Renderer{}
-	r.prog = compileProgram(vsSrc, fsSrc)
-	r.uRect = gl.GetUniformLocation(r.prog, gl.Str("uRect\x00"))
-	r.uColor = gl.GetUniformLocation(r.prog, gl.Str("uColor\x00"))
-	r.uViewport = gl.GetUniformLocation(r.prog, gl.Str("uViewport\x00"))
+
+	// ── rect pipeline ──
+	r.rectProg = compileProgram(rectVS, fsSrc)
+	r.rectURect = gl.GetUniformLocation(r.rectProg, gl.Str("uRect\x00"))
+	r.rectUColor = gl.GetUniformLocation(r.rectProg, gl.Str("uColor\x00"))
+	r.rectUViewport = gl.GetUniformLocation(r.rectProg, gl.Str("uViewport\x00"))
 
 	quad := []float32{0, 0, 1, 0, 0, 1, 1, 1}
-	gl.GenVertexArrays(1, &r.vao)
-	gl.BindVertexArray(r.vao)
-	gl.GenBuffers(1, &r.vbo)
-	gl.BindBuffer(gl.ARRAY_BUFFER, r.vbo)
+	gl.GenVertexArrays(1, &r.rectVAO)
+	gl.BindVertexArray(r.rectVAO)
+	gl.GenBuffers(1, &r.rectVBO)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.rectVBO)
 	gl.BufferData(gl.ARRAY_BUFFER, len(quad)*4, gl.Ptr(quad), gl.STATIC_DRAW)
 	gl.EnableVertexAttribArray(0)
 	gl.VertexAttribPointerWithOffset(0, 2, gl.FLOAT, false, 0, 0)
+
+	// ── line pipeline ──
+	r.lineProg = compileProgram(lineVS, fsSrc)
+	r.lineUColor = gl.GetUniformLocation(r.lineProg, gl.Str("uColor\x00"))
+	r.lineUViewport = gl.GetUniformLocation(r.lineProg, gl.Str("uViewport\x00"))
+
+	gl.GenVertexArrays(1, &r.lineVAO)
+	gl.BindVertexArray(r.lineVAO)
+	gl.GenBuffers(1, &r.lineVBO)
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.lineVBO)
+	r.lineCap = 256 // grows on demand
+	gl.BufferData(gl.ARRAY_BUFFER, r.lineCap*4, nil, gl.DYNAMIC_DRAW)
+	gl.EnableVertexAttribArray(0)
+	gl.VertexAttribPointerWithOffset(0, 2, gl.FLOAT, false, 0, 0)
+
 	return r
 }
 
 // Destroy releases GL resources.
 func (r *Renderer) Destroy() {
-	gl.DeleteBuffers(1, &r.vbo)
-	gl.DeleteVertexArrays(1, &r.vao)
-	gl.DeleteProgram(r.prog)
+	gl.DeleteBuffers(1, &r.rectVBO)
+	gl.DeleteVertexArrays(1, &r.rectVAO)
+	gl.DeleteProgram(r.rectProg)
+	gl.DeleteBuffers(1, &r.lineVBO)
+	gl.DeleteVertexArrays(1, &r.lineVAO)
+	gl.DeleteProgram(r.lineProg)
 }
 
-// Begin binds the program/VAO and sets the viewport size in pixels.  Call
-// once per frame before any Rect / Number / Text calls.
+// Begin records the viewport size and binds the rect pipeline.  Call once
+// per frame before any draw calls.
 func (r *Renderer) Begin(viewportW, viewportH int) {
-	gl.UseProgram(r.prog)
-	gl.BindVertexArray(r.vao)
-	gl.Uniform2f(r.uViewport, float32(viewportW), float32(viewportH))
+	r.viewportW, r.viewportH = viewportW, viewportH
+	r.bindRect()
+}
+
+func (r *Renderer) bindRect() {
+	if r.current != 0 {
+		gl.UseProgram(r.rectProg)
+		gl.BindVertexArray(r.rectVAO)
+		r.current = 0
+	} else {
+		gl.UseProgram(r.rectProg)
+		gl.BindVertexArray(r.rectVAO)
+	}
+	gl.Uniform2f(r.rectUViewport, float32(r.viewportW), float32(r.viewportH))
+}
+
+func (r *Renderer) bindLine() {
+	if r.current != 1 {
+		gl.UseProgram(r.lineProg)
+		gl.BindVertexArray(r.lineVAO)
+		r.current = 1
+	}
+	gl.Uniform2f(r.lineUViewport, float32(r.viewportW), float32(r.viewportH))
 }
 
 // Rect draws a filled axis-aligned rectangle at (x, y) with size (w, h) and
 // the given RGB colour.  Coordinates are pixels, origin top-left.
 func (r *Renderer) Rect(x, y, w, h, cr, cg, cb float32) {
-	gl.Uniform4f(r.uRect, x, y, w, h)
-	gl.Uniform3f(r.uColor, cr, cg, cb)
+	if r.current != 0 {
+		r.bindRect()
+	}
+	gl.Uniform4f(r.rectURect, x, y, w, h)
+	gl.Uniform3f(r.rectUColor, cr, cg, cb)
 	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+}
+
+// ─── Line + polyline ────────────────────────────────────────────────────────
+//
+// Lines render as thin rotated quads (4-vertex triangle strips) with vertices
+// computed CPU-side and uploaded per call.  Core-profile GL caps glLineWidth
+// at 1, so quads are the only portable path for thicker strokes.
+
+// Line draws a thickness-px-wide line from (x1, y1) to (x2, y2).
+func (r *Renderer) Line(x1, y1, x2, y2, thickness, cr, cg, cb float32) {
+	dx, dy := x2-x1, y2-y1
+	length := float32(math.Sqrt(float64(dx*dx + dy*dy)))
+	if length == 0 {
+		return
+	}
+	// perpendicular unit vector × half-thickness
+	px, py := -dy/length*thickness*0.5, dx/length*thickness*0.5
+	verts := [8]float32{
+		x1 + px, y1 + py,
+		x1 - px, y1 - py,
+		x2 + px, y2 + py,
+		x2 - px, y2 - py,
+	}
+	r.bindLine()
+	gl.BindBuffer(gl.ARRAY_BUFFER, r.lineVBO)
+	if r.lineCap < 8 {
+		r.lineCap = 8
+		gl.BufferData(gl.ARRAY_BUFFER, r.lineCap*4, gl.Ptr(&verts[0]), gl.DYNAMIC_DRAW)
+	} else {
+		gl.BufferSubData(gl.ARRAY_BUFFER, 0, 8*4, gl.Ptr(&verts[0]))
+	}
+	gl.Uniform3f(r.lineUColor, cr, cg, cb)
+	gl.DrawArrays(gl.TRIANGLE_STRIP, 0, 4)
+}
+
+// PolygonStroke draws line segments through the given vertices.  When
+// closed=true it also draws a closing segment from the last vertex back to
+// the first.  All segments share the same thickness and colour.
+func (r *Renderer) PolygonStroke(verts [][2]float32, thickness, cr, cg, cb float32, closed bool) {
+	if len(verts) < 2 {
+		return
+	}
+	for i := 0; i < len(verts)-1; i++ {
+		r.Line(verts[i][0], verts[i][1], verts[i+1][0], verts[i+1][1], thickness, cr, cg, cb)
+	}
+	if closed {
+		last := verts[len(verts)-1]
+		first := verts[0]
+		r.Line(last[0], last[1], first[0], first[1], thickness, cr, cg, cb)
+	}
 }
 
 // ─── 5×7 pixel font ──────────────────────────────────────────────────────────
@@ -159,7 +273,7 @@ func (r *Renderer) Number(x, y, w, h, t float32, n int, cr, cg, cb float32) {
 
 // ─── Shader plumbing ────────────────────────────────────────────────────────
 
-const vsSrc = `#version 330 core
+const rectVS = `#version 330 core
 layout(location=0) in vec2 aQuad;
 uniform vec4 uRect;       // x, y, w, h in pixels (origin top-left)
 uniform vec2 uViewport;   // window size in pixels
@@ -168,6 +282,17 @@ void main() {
     vec2 ndc = vec2(
          px.x / uViewport.x * 2.0 - 1.0,
         -(px.y / uViewport.y * 2.0 - 1.0)
+    );
+    gl_Position = vec4(ndc, 0.0, 1.0);
+}` + "\x00"
+
+const lineVS = `#version 330 core
+layout(location=0) in vec2 aPos; // pixel-space, origin top-left
+uniform vec2 uViewport;
+void main() {
+    vec2 ndc = vec2(
+         aPos.x / uViewport.x * 2.0 - 1.0,
+        -(aPos.y / uViewport.y * 2.0 - 1.0)
     );
     gl_Position = vec4(ndc, 0.0, 1.0);
 }` + "\x00"
