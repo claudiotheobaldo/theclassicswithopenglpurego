@@ -3,8 +3,8 @@ module github.com/ClaudioTheobaldo/TheClassicsWithOpenGLPurego
 go 1.25.0
 
 require (
-	github.com/ClaudioTheobaldo/gl-purego v0.0.0-20260506031321-60005b6e869e
-	github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v0.0.0-20260509095305-432a918e7fa9
+	github.com/ClaudioTheobaldo/gl-purego v1.0.0
+	github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.0.0
 )
 
 require (
