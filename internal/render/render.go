@@ -513,12 +513,24 @@ func (r *Renderer) Glyph(x, y, w, h, _ float32, c rune, cr, cg, cb float32) {
 	}
 }
 
+// glyphGap returns the inter-glyph gap for a per-glyph width of w.  Scaled
+// with the font size so small text stays tight and big text doesn't run
+// together.  Floor at 2 px so 0.5x-ratio pixel art still has visible
+// separation.
+func glyphGap(w float32) float32 {
+	g := w * 0.4
+	if g < 2 {
+		g = 2
+	}
+	return g
+}
+
 // Text draws a string left-to-right starting at (x, y), each glyph sized
-// (w × h).  A small inter-glyph gap is added so adjacent letters don't
-// touch.  The t parameter is preserved for signature compatibility but
-// ignored by the 5×7 renderer.
+// (w × h).  Inter-glyph gap scales with w so layouts stay balanced across
+// font sizes.  The t parameter is preserved for signature compatibility
+// but ignored by the 5×7 renderer.
 func (r *Renderer) Text(x, y, w, h, t float32, s string, cr, cg, cb float32) {
-	const gap = 10
+	gap := glyphGap(w)
 	for i, c := range s {
 		r.Glyph(x+float32(i)*(w+gap), y, w, h, t, c, cr, cg, cb)
 	}
@@ -536,8 +548,7 @@ func TextWidth(s string, w float32) float32 {
 	if len(s) == 0 {
 		return 0
 	}
-	const gap = 10 // keep in sync with Text
-	return float32(len(s))*w + float32(len(s)-1)*gap
+	return float32(len(s))*w + float32(len(s)-1)*glyphGap(w)
 }
 
 // NumberWidth is TextWidth(fmt.Sprintf("%d", n), w).

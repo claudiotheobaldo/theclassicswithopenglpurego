@@ -594,8 +594,5 @@ func (g *game) draw(r *render.Renderer) {
 }
 
 func drawCenteredText(r *render.Renderer, s string, y int, w, h float32) {
-	const gap = 10
-	stride := w + gap
-	totalW := float32(len(s))*stride - gap
-	r.Text(float32(winW)/2-totalW/2, float32(y), w, h, 0, s, 1, 1, 1)
+	r.Text(float32(winW)/2-render.TextWidth(s, w)/2, float32(y), w, h, 0, s, 1, 1, 1)
 }

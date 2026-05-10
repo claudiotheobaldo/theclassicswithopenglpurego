@@ -100,6 +100,14 @@ type app struct {
 	frames     int
 	lastInput  time.Time
 	cursorRowY float32 // y of the cursor-strip row (set by buildWidgets)
+
+	// letterbox: design-space (winW × winH) is rendered into a centred
+	// rect of the actual framebuffer.  Mouse events arrive in window
+	// coords and have to be inverse-transformed before we hit-test
+	// design-space widget rects.
+	fbW, fbH       int
+	lbX, lbY       int
+	lbW, lbH       int
 }
 
 func main() {
@@ -132,6 +140,16 @@ func main() {
 	a.makeCursors()
 	defer a.releaseCursors()
 
+	// Initial layout + framebuffer-size callback so widgets keep working
+	// after Maximize / window resize.
+	a.fbW, a.fbH = win.GetFramebufferSize()
+	a.applyLayout()
+	win.SetFramebufferSizeCallback(func(_ *glfw.Window, w, h int) {
+		a.fbW, a.fbH = w, h
+		a.applyLayout()
+		a.lastInput = time.Now()
+	})
+
 	// Snapshot the primary monitor's gamma ramp so we can restore it
 	// when we quit (otherwise the dashboard's slider would leave the
 	// monitor permanently tinted).
@@ -141,9 +159,11 @@ func main() {
 	}
 	defer a.restoreGamma()
 
-	// Wire callbacks.
+	// Wire callbacks.  Mouse coords arrive in window-pixel space; we
+	// convert them to design space immediately so widget hit-testing
+	// always uses design coords regardless of window size.
 	win.SetCursorPosCallback(func(_ *glfw.Window, x, y float64) {
-		a.mouseX, a.mouseY = x, y
+		a.mouseX, a.mouseY = a.toDesign(x, y)
 		a.lastInput = time.Now()
 		a.handleHover()
 		if a.dragSL != nil {
@@ -208,6 +228,27 @@ func main() {
 	}
 }
 
+// applyLayout recomputes the letterbox rectangle for the current
+// framebuffer size and updates gl.Viewport.  Called on startup and on
+// every framebuffer-size event (window resize, maximize, fullscreen).
+func (a *app) applyLayout() {
+	a.lbX, a.lbY, a.lbW, a.lbH = winutil.LetterboxRect(a.fbW, a.fbH, winW, winH)
+	gl.Viewport(int32(a.lbX), int32(a.lbY), int32(a.lbW), int32(a.lbH))
+}
+
+// toDesign converts a mouse position in window-pixel space (origin at
+// the window's top-left, as reported by GetCursorPos) into our fixed
+// design space (winW × winH).  Returns the design coords; callers can
+// hit-test widget rects without thinking about the window's actual size.
+func (a *app) toDesign(wx, wy float64) (float64, float64) {
+	if a.lbW <= 0 || a.lbH <= 0 {
+		return wx, wy
+	}
+	dx := (wx - float64(a.lbX)) * float64(winW) / float64(a.lbW)
+	dy := (wy - float64(a.lbY)) * float64(winH) / float64(a.lbH)
+	return dx, dy
+}
+
 // ─── Widget construction ────────────────────────────────────────────────────
 
 func (a *app) buildWidgets() {
@@ -231,7 +272,7 @@ func (a *app) buildWidgets() {
 	x += bw + gap
 	mkBtn(x, y, "RESTORE", func() { a.win.Restore() })
 	x += bw + gap
-	mkBtn(x, y, "ATTENTION", func() { a.win.RequestAttention() })
+	mkBtn(x, y, "ATTN", func() { a.win.RequestAttention() })
 
 	y += bh + 36
 
@@ -247,7 +288,7 @@ func (a *app) buildWidgets() {
 	// Title row — single button that randomises the title.
 	a.buttons = append(a.buttons, &button{
 		rect:    rect{x: x0, y: y, w: 220, h: bh},
-		label:   "RANDOMIZE TITLE",
+		label:   "NEW TITLE",
 		action:  func() { a.win.SetTitle(randomTitle()) },
 		primary: true,
 	})
