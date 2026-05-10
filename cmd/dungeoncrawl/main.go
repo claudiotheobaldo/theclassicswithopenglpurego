@@ -354,6 +354,11 @@ func main() {
 			} else {
 				fmt.Println("saved", name)
 			}
+			if err := screenshot.CopyToClipboard(fbW, fbH); err != nil {
+				fmt.Println("clipboard:", err)
+			} else {
+				fmt.Println("copied to clipboard")
+			}
 		}
 	})
 

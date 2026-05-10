@@ -1,11 +1,5 @@
 github.com/ClaudioTheobaldo/gl-purego v1.0.0 h1:65ARnQCFNidGSvM8vV86rUJzaWc7hhN+nSmyPHAV3o4=
 github.com/ClaudioTheobaldo/gl-purego v1.0.0/go.mod h1:AV7rvUMO3afaG4ZqeSqHd3Zjgr8FzrEcp0zDP3V6WKs=
-github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.0.0 h1:Lc/txYPDdMq266YZiJ1nADCaPgkYMG6SgWkvhkcTq7U=
-github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.0.0/go.mod h1:E9duTy2b9O1ZqZMQuBsjqoNYGH9oBhO558a+tH0cusg=
-github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.0.1 h1:/e4jK8s1v5rAInj6sZnSuaA7iYfd+kx4FWxVkNwpOLM=
-github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.0.1/go.mod h1:E9duTy2b9O1ZqZMQuBsjqoNYGH9oBhO558a+tH0cusg=
-github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.1.0 h1:K97cOP8pVP7q0oKo4JFAjbETtzCBSYID1z0lPBqEL9I=
-github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.1.0/go.mod h1:E9duTy2b9O1ZqZMQuBsjqoNYGH9oBhO558a+tH0cusg=
 github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.2.0 h1:V7i2gejTfWpkRaA9qE2D1cR5+MAmSk9Vn5Tu3WfDtuQ=
 github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.2.0/go.mod h1:E9duTy2b9O1ZqZMQuBsjqoNYGH9oBhO558a+tH0cusg=
 github.com/ebitengine/purego v0.8.2 h1:jPPGWs2sZ1UgOSgD2bClL0MJIqu58nOmIcBuXr62z1I=
