@@ -2,6 +2,8 @@ github.com/ClaudioTheobaldo/gl-purego v1.0.0 h1:65ARnQCFNidGSvM8vV86rUJzaWc7hhN+
 github.com/ClaudioTheobaldo/gl-purego v1.0.0/go.mod h1:AV7rvUMO3afaG4ZqeSqHd3Zjgr8FzrEcp0zDP3V6WKs=
 github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.2.0 h1:V7i2gejTfWpkRaA9qE2D1cR5+MAmSk9Vn5Tu3WfDtuQ=
 github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.2.0/go.mod h1:E9duTy2b9O1ZqZMQuBsjqoNYGH9oBhO558a+tH0cusg=
+github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.3.0 h1:AAYcWiuD3lYR5Gp+XObhIZ+w2ddAo/noPx/IcAMYWtU=
+github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.3.0/go.mod h1:E9duTy2b9O1ZqZMQuBsjqoNYGH9oBhO558a+tH0cusg=
 github.com/ebitengine/purego v0.8.2 h1:jPPGWs2sZ1UgOSgD2bClL0MJIqu58nOmIcBuXr62z1I=
 github.com/ebitengine/purego v0.8.2/go.mod h1:iIjxzd6CiRiOG0UyXP+V1+jWqUXVjPKLAI0mRfJZTmQ=
 golang.org/x/sys v0.43.0 h1:Rlag2XtaFTxp19wS8MXlJwTvoh8ArU6ezoyFsMyCTNI=

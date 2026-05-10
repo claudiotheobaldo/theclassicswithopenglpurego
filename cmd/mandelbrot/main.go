@@ -20,7 +20,6 @@ package main
 import (
 	"fmt"
 	"runtime"
-	"strings"
 	"time"
 
 	gl "github.com/ClaudioTheobaldo/gl-purego/v3.3-core/gl"
@@ -246,9 +245,9 @@ func compileProgram() uint32 {
 	if status == gl.FALSE {
 		var n int32
 		gl.GetProgramiv(p, gl.INFO_LOG_LENGTH, &n)
-		log := strings.Repeat("\x00", int(n)+1)
-		gl.GetProgramInfoLog(p, n, nil, gl.Str(log))
-		panic("link: " + log)
+		buf := make([]byte, n)
+		gl.GetProgramInfoLog(p, n, nil, &buf[0])
+		panic("link: " + string(buf))
 	}
 	gl.DeleteShader(v)
 	gl.DeleteShader(f)
@@ -266,9 +265,9 @@ func compileShader(kind uint32, src string) uint32 {
 	if status == gl.FALSE {
 		var n int32
 		gl.GetShaderiv(s, gl.INFO_LOG_LENGTH, &n)
-		log := strings.Repeat("\x00", int(n)+1)
-		gl.GetShaderInfoLog(s, n, nil, gl.Str(log))
-		panic(fmt.Sprintf("compile: %s", log))
+		buf := make([]byte, n)
+		gl.GetShaderInfoLog(s, n, nil, &buf[0])
+		panic(fmt.Sprintf("compile: %s", string(buf)))
 	}
 	return s
 }

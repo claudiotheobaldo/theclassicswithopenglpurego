@@ -27,6 +27,7 @@ import (
 	"github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw"
 
 	"github.com/ClaudioTheobaldo/TheClassicsWithOpenGLPurego/internal/render"
+	"github.com/ClaudioTheobaldo/TheClassicsWithOpenGLPurego/internal/winutil"
 )
 
 const (
@@ -59,18 +60,41 @@ func main() {
 	glfw.WindowHint(glfw.ContextVersionMinor, 3)
 	glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
 	glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
-	glfw.WindowHint(glfw.Resizable, glfw.False)
+	glfw.WindowHint(glfw.Resizable, glfw.True)
 
 	win, err := glfw.CreateWindow(winW, winH, "Pong", nil, nil)
 	if err != nil {
 		panic(err)
 	}
+	// First consumer of SetSizeLimits + SetAspectRatio: lock the window
+	// to its 4:3 design ratio with a sensible minimum, then letterbox
+	// the playfield inside whatever the framebuffer becomes.  Without
+	// the aspect lock the paddles would smear horizontally on resize.
+	win.SetSizeLimits(400, 300, glfw.DontCare, glfw.DontCare)
+	win.SetAspectRatio(4, 3)
 	win.MakeContextCurrent()
 	glfw.SwapInterval(1)
 
 	if err := gl.Init(); err != nil {
 		panic(err)
 	}
+
+	// Update viewport on resize so the design-space (winW × winH) stays
+	// proportional inside whatever framebuffer Win32 hands us.  The
+	// aspect lock above keeps the framebuffer 4:3, so this letterbox
+	// rect always fills it.
+	fbW, fbH := win.GetFramebufferSize()
+	apply := func(w, h int) {
+		x, y, vw, vh := winutil.LetterboxRect(w, h, winW, winH)
+		gl.Viewport(int32(x), int32(y), int32(vw), int32(vh))
+	}
+	apply(fbW, fbH)
+	win.SetFramebufferSizeCallback(func(_ *glfw.Window, w, h int) {
+		fbW, fbH = w, h
+		apply(w, h)
+	})
+	_ = fbW
+	_ = fbH
 
 	r := render.New()
 	defer r.Destroy()
