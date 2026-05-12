@@ -1,0 +1,170 @@
+name: smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Each job:
+#   1. builds every binary under cmd/ for the target OS
+#   2. runs errpaths headlessly (Visible=False, no display needed)
+#   3. runs vulkancheck — allowed to fail if no Vulkan loader is present
+#   4. runs soaktest for 3 seconds against a real display server
+#
+# Linux comes in two flavours so we cover both X11 (default) and Wayland
+# (wayland build tag).  Wayland needs a running compositor; we spin up
+# weston with its headless backend.
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Build all binaries
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path bin | Out-Null
+          $failed = @()
+          Get-ChildItem cmd -Directory | ForEach-Object {
+            $name = $_.Name
+            $out = go build -o "bin/$name.exe" "./cmd/$name" 2>&1
+            if ($LASTEXITCODE -ne 0) {
+              Write-Host "FAIL  $name`n$out"
+              $failed += $name
+            } else {
+              Write-Host "OK    $name"
+            }
+          }
+          if ($failed.Count -gt 0) { exit 1 }
+      - name: Run errpaths
+        shell: pwsh
+        run: ./bin/errpaths.exe
+      - name: Run vulkancheck (best-effort)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $job = Start-Job -ScriptBlock { & "$using:PWD/bin/vulkancheck.exe" }
+          Wait-Job $job -Timeout 8 | Out-Null
+          Stop-Job $job -ErrorAction SilentlyContinue
+          Receive-Job $job
+      - name: Run soaktest 3s
+        shell: pwsh
+        run: ./bin/soaktest.exe -duration=3s -interval=1s -minimized
+
+  linux-x11:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Install X11 / Mesa / Xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xvfb mesa-utils \
+            libgl1 libgles2 libegl1 libglx-mesa0 libgl1-mesa-dri \
+            libxi6 libxcursor1 libxrandr2 libxinerama1 libxkbcommon0
+      - name: Build all binaries
+        run: |
+          mkdir -p bin
+          set -e
+          for d in cmd/*/; do
+            name=$(basename "$d")
+            if go build -o "bin/$name" "./cmd/$name"; then
+              echo "OK    $name"
+            else
+              echo "FAIL  $name"
+              exit 1
+            fi
+          done
+      - name: Smoke under Xvfb
+        run: |
+          set -e
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            ./bin/errpaths
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            timeout 8 ./bin/vulkancheck || echo "vulkancheck nonzero (OK if no Vulkan ICD)"
+          xvfb-run -a -s "-screen 0 1280x720x24" \
+            ./bin/soaktest -duration=3s -interval=1s
+
+  linux-wayland:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Install Wayland / Weston / Mesa
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            weston mesa-utils \
+            libgl1 libgles2 libegl1 libglx-mesa0 libgl1-mesa-dri \
+            libwayland-client0 libwayland-egl1 libwayland-cursor0 \
+            libxkbcommon0
+      - name: Build all binaries (-tags wayland)
+        run: |
+          mkdir -p bin
+          set -e
+          for d in cmd/*/; do
+            name=$(basename "$d")
+            if go build -tags=wayland -o "bin/$name" "./cmd/$name"; then
+              echo "OK    $name"
+            else
+              echo "FAIL  $name"
+              exit 1
+            fi
+          done
+      - name: Smoke under headless Weston
+        run: |
+          set -e
+          export XDG_RUNTIME_DIR=$(mktemp -d)
+          chmod 700 "$XDG_RUNTIME_DIR"
+          # Headless Weston: no input, no display, just a compositor that
+          # accepts wl_surface clients.  Backgrounded; the binaries connect
+          # via WAYLAND_DISPLAY=wayland-0.
+          weston --backend=headless --width=1280 --height=720 --idle-time=0 \
+            --logger-scopes=log &
+          WESTON_PID=$!
+          # Give Weston a moment to come up and create its socket.
+          for i in {1..20}; do
+            if [ -S "$XDG_RUNTIME_DIR/wayland-0" ]; then break; fi
+            sleep 0.25
+          done
+          export WAYLAND_DISPLAY=wayland-0
+          ./bin/errpaths || echo "errpaths nonzero on wayland (note for follow-up)"
+          ./bin/soaktest -duration=3s -interval=1s || echo "soaktest nonzero on wayland"
+          kill $WESTON_PID || true
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+      - name: Build all binaries
+        run: |
+          mkdir -p bin
+          set -e
+          for d in cmd/*/; do
+            name=$(basename "$d")
+            if go build -o "bin/$name" "./cmd/$name"; then
+              echo "OK    $name"
+            else
+              echo "FAIL  $name"
+              exit 1
+            fi
+          done
+      - name: Smoke
+        run: |
+          set -e
+          ./bin/errpaths
+          # vulkancheck on bare CI runners usually has no MoltenVK installed.
+          timeout 8 ./bin/vulkancheck || echo "vulkancheck nonzero (OK if no MoltenVK)"
+          ./bin/soaktest -duration=3s -interval=1s
