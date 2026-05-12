@@ -51,6 +51,23 @@ jobs:
           Wait-Job $job -Timeout 8 | Out-Null
           Stop-Job $job -ErrorAction SilentlyContinue
           Receive-Job $job
+      - name: Install Mesa3D software GL (Windows runner has no GPU)
+        # GitHub windows-latest runners ship Microsoft's stub opengl32.dll
+        # which only exposes GL 1.1.  Drop Mesa's opengl32.dll (llvmpipe
+        # software renderer) next to our binaries so gl.Init finds the
+        # GL 3.3 entry points it needs.
+        shell: pwsh
+        run: |
+          $latest = Invoke-RestMethod "https://api.github.com/repos/pal1000/mesa-dist-win/releases/latest"
+          $asset = $latest.assets | Where-Object { $_.name -like "*release-msvc.7z" } | Select-Object -First 1
+          if (-not $asset) { throw "No mesa-dist-win msvc release asset found" }
+          Write-Host "Downloading $($asset.name)"
+          Invoke-WebRequest -Uri $asset.browser_download_url -OutFile mesa.7z
+          7z x mesa.7z -omesa | Out-Null
+          # The archive layout has an x64/ folder with the wgl-loadable DLLs.
+          Copy-Item mesa/x64/*.dll bin/ -Force
+          Write-Host "Mesa DLLs installed alongside binaries:"
+          Get-ChildItem bin/*.dll | ForEach-Object { Write-Host "  $($_.Name)" }
       - name: Run soaktest 3s
         shell: pwsh
         run: ./bin/soaktest.exe -duration=3s -interval=1s -minimized
