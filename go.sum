@@ -1,5 +1,7 @@
 github.com/ClaudioTheobaldo/gl-purego v1.0.0 h1:65ARnQCFNidGSvM8vV86rUJzaWc7hhN+nSmyPHAV3o4=
 github.com/ClaudioTheobaldo/gl-purego v1.0.0/go.mod h1:AV7rvUMO3afaG4ZqeSqHd3Zjgr8FzrEcp0zDP3V6WKs=
+github.com/ClaudioTheobaldo/gl-purego v1.0.1 h1:98NpU+YW6+gayXQs2MFR8sqim6oPvc/D1EolVLsogyM=
+github.com/ClaudioTheobaldo/gl-purego v1.0.1/go.mod h1:AV7rvUMO3afaG4ZqeSqHd3Zjgr8FzrEcp0zDP3V6WKs=
 github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.2.0 h1:V7i2gejTfWpkRaA9qE2D1cR5+MAmSk9Vn5Tu3WfDtuQ=
 github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.2.0/go.mod h1:E9duTy2b9O1ZqZMQuBsjqoNYGH9oBhO558a+tH0cusg=
 github.com/ClaudioTheobaldo/glfw-purego/v3.3/glfw v1.3.0 h1:AAYcWiuD3lYR5Gp+XObhIZ+w2ddAo/noPx/IcAMYWtU=
